@@ -10,6 +10,8 @@ namespace FluidSim
         public float falloff = 1f; // Intensity falloff
         public float radius = 1f;
         public bool visible = true;
+        private bool dragging = false;
+        private Vector2 offset;
         
         public void Start()
         {
@@ -27,15 +29,18 @@ namespace FluidSim
                 Input.GetMouseButton(0) && visible)
             {
                 FluidSim.Instance.fluidRenderer.brushEnabled = false; // Disable velocity brush while dragging emitter
+                dragging = true;
+            }
+            
+            if (dragging && Input.GetMouseButton(0))
+            {
                 position = mousePos;
                 emitterInstance.transform.position = position;
             }
-            else
+            else if (dragging && !Input.GetMouseButton(0))
             {
-                if (!FluidSim.Instance.fluidRenderer.brushEnabled)
-                {
-                    FluidSim.Instance.fluidRenderer.brushEnabled = true; // Re-enable velocity brush
-                }
+                dragging = false;
+                FluidSim.Instance.fluidRenderer.brushEnabled = true; // Re-enable velocity brush when not dragging
             }
             
             emitterInstance.transform.localScale = new Vector3(radius * 2, radius * 2, 1);

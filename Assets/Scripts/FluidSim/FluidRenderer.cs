@@ -47,8 +47,7 @@ namespace FluidSim
         private float cellSize => FluidSim.Instance.cellSize;
         private float brushRadius = 0f;
 
-        
-        
+        private bool draggingObstacle;
         
 
         public void Initialize()
@@ -76,8 +75,19 @@ namespace FluidSim
             if (Vector2.Distance(mousePos, obstaclePosition) <= obstacleRadius && Input.GetMouseButton(0))
             {
                 brushEnabled = false; // Disable brush while dragging obstacle
-                ModifySolidMapForObstacle(obstaclePosition, mousePos);
+                draggingObstacle = true;
+            }
+            
+            if (draggingObstacle && Input.GetMouseButton(0))
+            {
+                Vector2 oldPos = obstaclePosition;
                 obstaclePosition = mousePos;
+                ModifySolidMapForObstacle(oldPos, obstaclePosition);
+            }
+            else if (draggingObstacle && !Input.GetMouseButton(0))
+            {
+                draggingObstacle = false;
+                brushEnabled = true; // Re-enable brush after dragging
             }
         }
         
@@ -90,90 +100,35 @@ namespace FluidSim
 
             int radiusCells = Mathf.CeilToInt(obstacleRadius / cellSize);
 
-            // --- OLD CENTER ---
-            int oldCI = Mathf.FloorToInt((oldPos.x - bottomLeft.x) / cellSize);
-            int oldCJ = Mathf.FloorToInt((oldPos.y - bottomLeft.y) / cellSize);
-
             // --- NEW CENTER ---
             int newCI = Mathf.FloorToInt((newPos.x - bottomLeft.x) / cellSize);
             int newCJ = Mathf.FloorToInt((newPos.y - bottomLeft.y) / cellSize);
 
             Vector2 obstacleVel = (newPos - oldPos) / Time.deltaTime;
 
-            // --- FREE OLD REGION ---
-            for (int i = oldCI - radiusCells; i <= oldCI + radiusCells; i++)
+            for (int i = 1; i < width - 1; i++)
             {
-                for (int j = oldCJ - radiusCells; j <= oldCJ + radiusCells; j++)
+                for (int j = 1; j < height - 1; j++)
                 {
-                    if (i <= 0 || i >= width - 1 || j <= 0 || j >= height - 1)
-                        continue;
-
-                    Vector2 worldPos = IndexToWorldPos(i, j);
-                    float dist = Vector2.Distance(worldPos, oldPos);
-
-                    // If was solid but is no longer inside obstacle → free it
-                    if (dist <= obstacleRadius && solver.solid[i, j] == 1)
-                    {
-                        solver.solid[i, j] = 0;
-
-                        // NEW: give freed cells the obstacle's velocity
-                        solver.uGrid[i, j] = obstacleVel.x;
-                        solver.uGrid[i+1, j] = obstacleVel.x;
-                        solver.vGrid[i, j] = obstacleVel.y;
-                        solver.vGrid[i, j+1] = obstacleVel.y;
-                        solver.density[i, j] = 1f;
-                        // solver.density[i, j] = SumNeighbors(i, j);
-                    }
-                }
-            }
-            
-            // --- PASS 2: SET NEW OBSTACLE REGION TO SOLID ---
-            for (int i = newCI - radiusCells; i <= newCI + radiusCells; i++)
-            {
-                for (int j = newCJ - radiusCells; j <= newCJ + radiusCells; j++)
-                {
-                    if (i <= 0 || i >= width - 1 || j <= 0 || j >= height - 1)
-                        continue;
-
-                    Vector2 worldPos = IndexToWorldPos(i, j);
-                    float dist = Vector2.Distance(worldPos, newPos);
-
-                    // If inside new radius → make solid
-                    if (dist <= obstacleRadius)
+                    solver.solid[i, j] = 0;
+                    
+                    // Check if within obstacle radius
+                    float dx = i + 0.5f - newCI;
+                    float dy = j + 0.5f - newCJ;
+                    if (dx*dx + dy*dy <= radiusCells * radiusCells)
                     {
                         solver.solid[i, j] = 1;
 
-                        // *** ZERO VELOCITY FOR SOLID CELLS ***
-                        solver.uGrid[i, j] = 0f;
-                        solver.vGrid[i, j] = 0f;
+                        // Set velocity to obstacle velocity
+                        solver.uGrid[i, j] = obstacleVel.x;
+                        solver.vGrid[i, j] = obstacleVel.y;
+                        solver.uGrid[i+1, j] = obstacleVel.x;
+                        solver.vGrid[i, j+1] = obstacleVel.y;
+                        
+                        solver.density[i, j] = 1f;
                     }
                 }
             }
-        }
-        
-        float SumNeighbors(int i, int j)
-        {
-            float sum = 0;
-            int count = 0;
-
-            // 4-neighbor average (von Neumann)
-            int[,] dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-
-            for (int d = 0; d < 4; d++)
-            {
-                int ni = i + dirs[d,0];
-                int nj = j + dirs[d,1];
-
-                if (FluidSim.Instance.fluidSolver.solid[ni, nj] == 0) // fluid cell
-                {
-                    sum += FluidSim.Instance.fluidSolver.density[ni, nj];
-                    count++;
-                }
-            }
-
-            if (count > 0) return sum / count;
-
-            return 0f; // fallback
         }
         
         void GetBottomLeft()

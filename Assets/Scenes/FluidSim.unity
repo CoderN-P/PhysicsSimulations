@@ -154,7 +154,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   width: 160
   height: 90
-  cellSize: 0.11
+  cellSize: 0.055
   overrelaxationFactor: 1.9
   pressureSolveIterations: 20
   timeStep: 0.01666667
@@ -240,7 +240,7 @@ Camera:
   far clip plane: 1000
   field of view: 60
   orthographic: 1
-  orthographic size: 5
+  orthographic size: 2.5
   m_Depth: -1
   m_CullingMask:
     serializedVersion: 2
@@ -373,7 +373,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4361005622935765864, guid: 50d45140db8744962bf4a4cc39ae9170, type: 3}
       propertyPath: position.x
-      value: -7
+      value: -3
       objectReference: {fileID: 0}
     - target: {fileID: 4415230361484454347, guid: 50d45140db8744962bf4a4cc39ae9170, type: 3}
       propertyPath: m_Name
@@ -591,7 +591,7 @@ MonoBehaviour:
     atime5: 0
     atime6: 0
     atime7: 0
-    m_Mode: 2
+    m_Mode: 0
     m_ColorSpace: -1
     m_NumColorKeys: 2
     m_NumAlphaKeys: 2
@@ -634,8 +634,8 @@ MonoBehaviour:
   brushVelocityStrength: 0.2
   brushDensityStrength: 0.6
   brushEnabled: 1
-  obstaclePosition: {x: -7, y: 0}
-  obstacleRadius: 1
+  obstaclePosition: {x: -1, y: 0}
+  obstacleRadius: 0.5
 --- !u!4 &1134022165
 Transform:
   m_ObjectHideFlags: 0

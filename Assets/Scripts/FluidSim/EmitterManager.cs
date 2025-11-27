@@ -10,8 +10,10 @@ namespace FluidSim
         public float falloff = 1f; // Intensity falloff
         public float radius = 1f;
         public bool visible = true;
+        public bool enabled = true;
         private bool dragging = false;
         private Vector2 offset;
+        
         
         public void Start()
         {
@@ -44,8 +46,12 @@ namespace FluidSim
             }
             
             emitterInstance.transform.localScale = new Vector3(radius * 2, radius * 2, 1);
-            FluidSim.Instance.fluidRenderer.RegisterEmitter(position, radius, rate, falloff);
-            
+
+            if (enabled)
+            {
+                FluidSim.Instance.fluidRenderer.RegisterEmitter(position, radius, rate, falloff);
+            }
+
             emitterInstance.enabled = visible;
         }
     }

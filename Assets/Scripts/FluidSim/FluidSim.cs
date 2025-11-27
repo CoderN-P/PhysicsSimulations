@@ -21,6 +21,8 @@ namespace FluidSim
         public bool advect;
         public bool vortexShedding;
         public bool initializeRandom;
+        public bool paused;
+        public bool stepping;
         
         public FluidSolver fluidSolver;
         public FluidRenderer fluidRenderer;
@@ -40,6 +42,7 @@ namespace FluidSim
 
         void Update()
         {
+            fluidRenderer.GetKeyboardInput();
             fluidRenderer.Render(
                 fluidSolver.uGrid,
                 fluidSolver.vGrid,
@@ -49,6 +52,7 @@ namespace FluidSim
 
         void FixedUpdate()
         {
+            if (paused) return;
             fluidSolver.Step(project, advect, leftWallForce);
         }
     }

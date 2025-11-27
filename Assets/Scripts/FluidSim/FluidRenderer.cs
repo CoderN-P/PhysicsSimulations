@@ -63,6 +63,41 @@ namespace FluidSim
                 InitializeSolidObstacleCells();
         }
 
+        public void GetKeyboardInput()
+        {
+            // If p is pressed, pause/unpause simulation
+            if (Input.GetKeyDown(KeyCode.P))
+            {
+                FluidSim.Instance.paused = !FluidSim.Instance.paused;
+            }
+            
+            // Horizontal Arrows to go through visualization modes
+            if (Input.GetKeyDown(KeyCode.RightArrow))
+            {
+                visualizationMode = (VisualizationMode)(((int)visualizationMode + 1) % System.Enum.GetNames(typeof(VisualizationMode)).Length);
+            }
+            else if (Input.GetKeyDown(KeyCode.LeftArrow))
+            {
+                visualizationMode = (VisualizationMode)(((int)visualizationMode - 1 + System.Enum.GetNames(typeof(VisualizationMode)).Length) % System.Enum.GetNames(typeof(VisualizationMode)).Length);
+            }
+            
+            // If s is pressed, step simulation one step
+            
+            if (Input.GetKeyDown(KeyCode.S)) 
+            {
+                FluidSim.Instance.stepping = true;
+            } else if (Input.GetKeyUp(KeyCode.S))
+            {
+                FluidSim.Instance.stepping = false;
+            }
+            
+            if (FluidSim.Instance.stepping)
+            {
+                FluidSim.Instance.paused = true;
+                FluidSim.Instance.fluidSolver.Step(FluidSim.Instance.project, FluidSim.Instance.advect, FluidSim.Instance.leftWallForce);
+            }
+        }
+
         public void UpdateObstaclePosition()
         {
             if (!FluidSim.Instance.vortexShedding) // Only enabled for vortex shedding

@@ -161,7 +161,7 @@ namespace FluidSim
             {
                 for (int j = 0; j < height; j++)
                 {
-                    uGrid[i, j] = Random.Range(-1f, 1f);
+                    uGrid[i, j] = Random.Range(-15f, 15f);
                 }
             }
             
@@ -169,7 +169,7 @@ namespace FluidSim
             {
                 for (int j = 0; j < height + 1; j++)
                 {
-                    vGrid[i, j] = Random.Range(-1f, 1f);
+                    vGrid[i, j] = Random.Range(-15f, 15f);
                 }
             }
         }

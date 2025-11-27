@@ -158,11 +158,13 @@ MonoBehaviour:
   overrelaxationFactor: 1.9
   pressureSolveIterations: 20
   timeStep: 0.01666667
-  leftWallForce: 10
+  leftWallForce: 8
   project: 1
   advect: 1
   vortexShedding: 1
-  initializeRandom: 0
+  initializeRandom: 1
+  paused: 0
+  stepping: 0
   fluidRenderer: {fileID: 1134022164}
 --- !u!4 &469089263
 Transform:
@@ -365,7 +367,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 4361005622935765864, guid: 50d45140db8744962bf4a4cc39ae9170, type: 3}
       propertyPath: rate
-      value: 150
+      value: 80
       objectReference: {fileID: 0}
     - target: {fileID: 4361005622935765864, guid: 50d45140db8744962bf4a4cc39ae9170, type: 3}
       propertyPath: radius
@@ -373,7 +375,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4361005622935765864, guid: 50d45140db8744962bf4a4cc39ae9170, type: 3}
       propertyPath: position.x
-      value: -3
+      value: -3.7
       objectReference: {fileID: 0}
     - target: {fileID: 4415230361484454347, guid: 50d45140db8744962bf4a4cc39ae9170, type: 3}
       propertyPath: m_Name
@@ -634,8 +636,8 @@ MonoBehaviour:
   brushVelocityStrength: 0.2
   brushDensityStrength: 0.6
   brushEnabled: 1
-  obstaclePosition: {x: -1, y: 0}
-  obstacleRadius: 0.5
+  obstaclePosition: {x: -1.7, y: 0}
+  obstacleRadius: 0.7
 --- !u!4 &1134022165
 Transform:
   m_ObjectHideFlags: 0

@@ -13,6 +13,9 @@ namespace FluidSim
         public float cellSpacing; // Percent of cell to be shrunk for spacing
         public bool showArrows;
         public bool enableArrows;
+        public bool usePixelInterpolation;
+        public int texWidth = 1280;
+        public int texHeight = 720;
         
         [Header("Colors")]
         public Gradient velocityGradient;
@@ -22,12 +25,16 @@ namespace FluidSim
         public Gradient vorticityGradient;
         public Color solidCellColor;
         
+        [Header("Interpolation")]
+        public GameObject interpolationQuad;
+        
         [Header("Value Ranges")]
         public float maxVelocityMagnitude;
         public float maxDivergenceMagnitude;
         public float maxVelocityArrowLength;
         public float maxPressureMagnitude;
         public float maxVorticityMagnitude;
+        public float maxDensity;
         
         [Header("Brush Settings")]
         public float brushVelocityStrength;
@@ -37,6 +44,8 @@ namespace FluidSim
         [Header("Vortex Shedding")]
         public Vector2 obstaclePosition;
         public float obstacleRadius;
+        public float obstacleOutlineThickness;
+        public GameObject obstaclePrefab;
         
         private Vector2 bottomLeft; // Bottom-left position of the grid in world coordinates
         private ArrowManager[,] vectorArrows;
@@ -46,21 +55,49 @@ namespace FluidSim
         private int height => FluidSim.Instance.height;
         private float cellSize => FluidSim.Instance.cellSize;
         private float brushRadius = 0f;
-
         private bool draggingObstacle;
+
+        private Texture2D cellTexture;
+        private Color[] pixels;
+        
+        private CircularObstacleManager obstacleVisualizer;
+        
         
 
         public void Initialize()
         {
-            
+
             GetBottomLeft();
-            cells = new SpriteRenderer[width, height];
             vectorArrows = new ArrowManager[width, height];
-            InitializeCells();
+
+            if (!usePixelInterpolation) // Only initialize cells if not using pixel interpolation
+            {
+                cells = new SpriteRenderer[width, height];
+                InitializeCells();
+            }
+            else
+            {
+                cellTexture = new Texture2D(texWidth, texHeight, TextureFormat.RGBA32, false);
+                cellTexture.filterMode = FilterMode.Point;
+                pixels = new Color[texWidth * texHeight];
+                
+                float w = width * cellSize;
+                float h = height * cellSize;
+
+                interpolationQuad.transform.localScale = new Vector3(w, h, 1);
+                Vector2 center = bottomLeft + new Vector2(w/2f, h/2f);
+                interpolationQuad.transform.position = center;
+                interpolationQuad.GetComponent<Renderer>().material.mainTexture = cellTexture;
+            }
+
             if (enableArrows)
                 InitializeArrows();
+
             if (FluidSim.Instance.vortexShedding)
+            {
                 InitializeSolidObstacleCells();
+                obstacleVisualizer = Instantiate(obstaclePrefab, obstaclePosition, Quaternion.identity).GetComponent<CircularObstacleManager>();
+            }
         }
 
         public void GetKeyboardInput()
@@ -230,6 +267,57 @@ namespace FluidSim
             }
         }
 
+        void RenderPixel(int px, int py, int index)
+        {
+            float gridWorldHeight = height * cellSize;
+            float gridWorldWidth = width * cellSize;
+            float worldX = (px + 0.5f) * (gridWorldWidth / texWidth);
+            float worldY = (py + 0.5f) * (gridWorldHeight / texHeight);
+            Vector2 worldPos = new Vector2(worldX, worldY);
+            
+            if (visualizationMode == VisualizationMode.SmokeWithVelocity)
+            {
+                Vector2 velocity = FluidSim.Instance.fluidSolver.VelocityAtWorldPos(worldPos);
+                float density = FluidSim.Instance.fluidSolver.DensityAtWorldPos(worldPos);
+                float velMagnitude = velocity.magnitude;
+                float t = Mathf.Clamp01(Mathf.Abs(velMagnitude) / maxVelocityMagnitude);
+                Color velColor = velocityGradient.Evaluate(t);
+            
+                float densityClamped = Mathf.Clamp01(density/maxDensity);
+                Color bg = Color.black;
+                pixels[index] = Color.Lerp(bg, velColor, densityClamped);
+            } else if (visualizationMode == VisualizationMode.Velocity)
+            {
+                Vector2 velocity = FluidSim.Instance.fluidSolver.VelocityAtWorldPos(worldPos);
+                float velMagnitude = velocity.magnitude;
+                float t = Mathf.Clamp01(Mathf.Abs(velMagnitude) / maxVelocityMagnitude);
+                pixels[index] = velocityGradient.Evaluate(t);
+            } else if (visualizationMode == VisualizationMode.Smoke)
+            {
+                float density = FluidSim.Instance.fluidSolver.DensityAtWorldPos(worldPos);
+                pixels[index] = smokeDensityGradient.Evaluate(Mathf.Clamp01(density/maxDensity));
+            }
+        }
+
+        void RenderTexture()
+        {
+            if (visualizationMode != VisualizationMode.Velocity &&
+                visualizationMode != VisualizationMode.Smoke &&
+                visualizationMode != VisualizationMode.SmokeWithVelocity)
+                return;
+
+            for (int px = 0; px < texWidth; px++)
+            {
+                for (int py = 0; py < texHeight; py++)
+                {
+                    int index = py * texWidth + px;
+                    RenderPixel(px, py, index);
+                }
+            }
+            cellTexture.SetPixels(pixels);
+            cellTexture.Apply();
+        }
+
         void RenderCell(float value, int i, int j, VisualizationMode mode)
         {
             // Implementation for rendering a single cell at grid position (i, j) with given density
@@ -257,9 +345,7 @@ namespace FluidSim
                 cells[i, j].color = divergenceGradient.Evaluate(t);
             } else if (mode == VisualizationMode.Smoke)
             {
-                clampedValue = Mathf.Clamp01(value);
-                t = clampedValue;
-                cells[i, j].color = smokeDensityGradient.Evaluate(t);
+                cells[i, j].color = smokeDensityGradient.Evaluate( Mathf.Clamp01(value/maxDensity));
             } else if (mode == VisualizationMode.Vorticity)
             {
                 clampedValue = value;
@@ -315,7 +401,7 @@ namespace FluidSim
             float t = Mathf.Clamp01(Mathf.Abs(velMagnitude) / maxVelocityMagnitude);
             Color velColor = velocityGradient.Evaluate(t);
             
-            float densityClamped = Mathf.Clamp01(density);
+            float densityClamped = Mathf.Clamp01(density/maxDensity);
             velColor.a = densityClamped;
             cells[i, j].color = velColor;
         }
@@ -362,6 +448,14 @@ namespace FluidSim
 
         public void Render(float[,] uGrid, float[,] vGrid, int[,] solid)
         {
+            if (FluidSim.Instance.vortexShedding)
+                obstacleVisualizer.Draw(obstacleRadius, obstacleOutlineThickness, obstaclePosition);   
+            
+            if (usePixelInterpolation)
+            {
+                RenderTexture();
+                return;
+            }
             for (int i = 0; i < width; i++)
             {
                 for (int j = 0; j < height; j++)

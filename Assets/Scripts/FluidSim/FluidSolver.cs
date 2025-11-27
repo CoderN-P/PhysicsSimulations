@@ -214,7 +214,7 @@ namespace FluidSim
             pressure[i, j] += overrelaxationFactor * (pNew - pressure[i, j]);
         }
 
-        Vector2 VelocityAtWorldPos(Vector2 pos)
+        public Vector2 VelocityAtWorldPos(Vector2 pos)
         {
             float u = UAtWorldPos(pos);
             float v = VAtWorldPos(pos);
@@ -261,7 +261,7 @@ namespace FluidSim
             );
         }
         
-        float densityAtWorldPos(Vector2 pos)
+        public float DensityAtWorldPos(Vector2 pos)
         {
             float gridX = pos.x / cellSize - 0.5f;
             float gridY = pos.y / cellSize - 0.5f;
@@ -281,6 +281,20 @@ namespace FluidSim
             );
         }
 
+        public float GetMaxDensity()
+        {
+            float maxDensity = 0f;
+            for (int i = 0; i < width; i++)
+            {
+                for (int j = 0; j < height; j++)
+                {
+                    if (density[i, j] > maxDensity)
+                        maxDensity = density[i, j];
+                }
+            }
+            return maxDensity;
+        }
+
         void AdvectSmoke()
         {
             for (int i = 1; i < width-1; i++)
@@ -290,7 +304,7 @@ namespace FluidSim
                     Vector2 pos = new Vector2((i + 0.5f) * cellSize, (j + 0.5f) * cellSize);
                     Vector2 vel = VelocityAtWorldPos(pos);
                     Vector2 backPos = pos - vel * FluidSim.Instance.timeStep;
-                    tempDensity[i, j] = densityAtWorldPos(backPos);
+                    tempDensity[i, j] = DensityAtWorldPos(backPos);
                 }
             }
             
@@ -444,6 +458,18 @@ namespace FluidSim
             }
             pendingBrushForces.Clear();   
         }
+
+        void InjectDensityForVortexShedding()
+        {
+            for (int j = 0; j < height; j++)
+            {
+                float center = height * 0.5f;
+                float dy = j - center;
+                // float falloff = Mathf.Exp(-dy * dy / (2 * FluidSim.Instance.sigma * FluidSim.Instance.sigma));
+                float falloff = Mathf.Abs(dy) <= FluidSim.Instance.sigma/cellSize ? 1 : 0;
+                density[0, j] = falloff*FluidSim.Instance.injectionDensity;
+            }
+        }
         
         public void Step(bool project, bool advect, float forceMagnitude = 100f)
         {
@@ -455,13 +481,19 @@ namespace FluidSim
             if (advect)
                 AdvectVelocities();
             
-            FluidSim.Instance.fluidRenderer.UpdateObstaclePosition();
+            if (vortexShedding)
+                FluidSim.Instance.fluidRenderer.UpdateObstaclePosition();
             
             UpdatePressureField();
             if (project)
                 ProjectVelocities();
             
             AddSmokeSources(FluidSim.Instance.timeStep);
+
+            if (vortexShedding)
+            {
+                InjectDensityForVortexShedding();
+            }
             if (advect)
                 AdvectSmoke();
             

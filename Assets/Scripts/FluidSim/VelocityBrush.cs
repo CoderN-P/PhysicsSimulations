@@ -63,8 +63,6 @@ namespace FluidSim
                 }
             }
             
-   
-            
             // If dragging and active, apply velocity
             
             

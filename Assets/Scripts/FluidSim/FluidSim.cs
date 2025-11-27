@@ -16,13 +16,19 @@ namespace FluidSim
         public float overrelaxationFactor = 1.9f;
         public int pressureSolveIterations = 20;
         public float timeStep = 1f / 60f;
-        public float leftWallForce;
         public bool project;
         public bool advect;
-        public bool vortexShedding;
         public bool initializeRandom;
         public bool paused;
         public bool stepping;
+        
+        
+        [Header("Vortex Shedding Parameters")]
+        public float leftWallForce;
+        public float sigma;
+        public float injectionDensity;
+        public bool vortexShedding;
+        
         
         public FluidSolver fluidSolver;
         public FluidRenderer fluidRenderer;
@@ -40,7 +46,7 @@ namespace FluidSim
             fluidRenderer.Initialize();
         }
 
-        void Update()
+        void LateUpdate()
         {
             fluidRenderer.GetKeyboardInput();
             fluidRenderer.Render(

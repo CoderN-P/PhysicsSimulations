@@ -9,9 +9,6 @@ namespace FluidSim
         private int height;
         private float cellSize;
         
-        private float overrelaxationFactor;
-        private int pressureSolveIterations;
-        
         // Staggered uv grid for velocity
         public float[,] uGrid;
         public float[,] vGrid;
@@ -39,6 +36,8 @@ namespace FluidSim
         public float[,] tempVGrid;
         public float[,] tempDensity;
         
+        public float maxPressure = float.MinValue;
+        
         public struct BrushForce
         {
             public int i;
@@ -49,13 +48,11 @@ namespace FluidSim
         
         private bool vortexShedding;
         
-        public FluidSolver(int width, int height, float cellSize, float overrelaxationFactor = 1.9f, int pressureSolveIterations = 20, bool vortexShedding = false, bool initializeRandom = false)
+        public FluidSolver(int width, int height, float cellSize, bool vortexShedding = false, bool initializeRandom = false)
         {
             this.width = width;
             this.height = height;
             this.cellSize = cellSize;
-            this.pressureSolveIterations = pressureSolveIterations;
-            this.overrelaxationFactor = overrelaxationFactor;
             this.vortexShedding = vortexShedding;
 
             uGrid = new float[width + 1, height];
@@ -211,7 +208,7 @@ namespace FluidSim
             }
             
             float pNew = (pressureSum - divergence * cellSize * cellSize) / neighborCount;
-            pressure[i, j] += overrelaxationFactor * (pNew - pressure[i, j]);
+            pressure[i,j] = (1 - FluidSim.Instance.overrelaxationFactor) * pressure[i,j] + FluidSim.Instance.overrelaxationFactor * pNew;
         }
 
         public Vector2 VelocityAtWorldPos(Vector2 pos)
@@ -281,18 +278,40 @@ namespace FluidSim
             );
         }
 
-        public float GetMaxDensity()
+        public float PressureAtWorldPos(Vector2 pos)
         {
-            float maxDensity = 0f;
+            float gridX = pos.x / cellSize - 0.5f;
+            float gridY = pos.y / cellSize - 0.5f;
+            
+            int i0 = Mathf.Clamp(Mathf.FloorToInt(gridX), 0, width - 1);
+            int i1 = Mathf.Clamp(i0 + 1, 0, width - 1);
+            int j0 = Mathf.Clamp(Mathf.FloorToInt(gridY), 0, height - 1);
+            int j1 = Mathf.Clamp(j0 + 1, 0, height - 1);
+            
+            float sy = gridY - j0;
+            float sx = gridX - i0;
+            
+            return Mathf.Lerp(
+                Mathf.Lerp(pressure[i0, j0], pressure[i1, j0], sx),
+                Mathf.Lerp(pressure[i0, j1], pressure[i1, j1], sx),
+                sy
+            );
+        }
+
+        public float GetMaxPressure()
+        {
+            float maxPressure = float.MinValue;
             for (int i = 0; i < width; i++)
             {
                 for (int j = 0; j < height; j++)
                 {
-                    if (density[i, j] > maxDensity)
-                        maxDensity = density[i, j];
+                    if (pressure[i, j] > maxPressure)
+                    {
+                        maxPressure = pressure[i, j];
+                    }
                 }
             }
-            return maxDensity;
+            return maxPressure;
         }
 
         void AdvectSmoke()
@@ -362,7 +381,8 @@ namespace FluidSim
 
         void UpdatePressureField()
         {
-            for (int n = 0; n < pressureSolveIterations; n++)
+            if (FluidSim.Instance.resetPressureField) pressure = new float[width, height]; // Reset pressure field
+            for (int n = 0; n < FluidSim.Instance.pressureSolveIterations; n++)
             {
                 for (int i = 1; i < width - 1; i++)
                 {
@@ -485,6 +505,8 @@ namespace FluidSim
                 FluidSim.Instance.fluidRenderer.UpdateObstaclePosition();
             
             UpdatePressureField();
+            
+            
             if (project)
                 ProjectVelocities();
             

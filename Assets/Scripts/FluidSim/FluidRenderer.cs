@@ -21,8 +21,8 @@ namespace FluidSim
         public Gradient velocityGradient;
         public Gradient divergenceGradient;
         public Gradient pressureGradient;
-        public Gradient smokeDensityGradient;
         public Gradient vorticityGradient;
+        public Color backgroundColor;
         public Color solidCellColor;
         
         [Header("Interpolation")]
@@ -201,6 +201,8 @@ namespace FluidSim
                     }
                 }
             }
+            
+            FluidSim.Instance.fluidSolver.pressure = new float[width, height]; // Reset pressure field
         }
         
         void GetBottomLeft()
@@ -284,8 +286,7 @@ namespace FluidSim
                 Color velColor = velocityGradient.Evaluate(t);
             
                 float densityClamped = Mathf.Clamp01(density/maxDensity);
-                Color bg = Color.black;
-                pixels[index] = Color.Lerp(bg, velColor, densityClamped);
+                pixels[index] = Color.Lerp(backgroundColor, velColor, densityClamped);
             } else if (visualizationMode == VisualizationMode.Velocity)
             {
                 Vector2 velocity = FluidSim.Instance.fluidSolver.VelocityAtWorldPos(worldPos);
@@ -295,7 +296,11 @@ namespace FluidSim
             } else if (visualizationMode == VisualizationMode.Smoke)
             {
                 float density = FluidSim.Instance.fluidSolver.DensityAtWorldPos(worldPos);
-                pixels[index] = smokeDensityGradient.Evaluate(Mathf.Clamp01(density/maxDensity));
+                pixels[index] = Color.Lerp(backgroundColor, Color.white, Mathf.Clamp01(density / maxDensity));
+            } else if (visualizationMode == VisualizationMode.Pressure)
+            {
+                float pressure = FluidSim.Instance.fluidSolver.PressureAtWorldPos(worldPos);
+                pixels[index] = pressureGradient.Evaluate(Mathf.InverseLerp(-maxPressureMagnitude, maxPressureMagnitude, pressure));
             }
         }
 
@@ -303,7 +308,8 @@ namespace FluidSim
         {
             if (visualizationMode != VisualizationMode.Velocity &&
                 visualizationMode != VisualizationMode.Smoke &&
-                visualizationMode != VisualizationMode.SmokeWithVelocity)
+                visualizationMode != VisualizationMode.SmokeWithVelocity &&
+                visualizationMode != VisualizationMode.Pressure)
                 return;
 
             for (int px = 0; px < texWidth; px++)
@@ -345,7 +351,7 @@ namespace FluidSim
                 cells[i, j].color = divergenceGradient.Evaluate(t);
             } else if (mode == VisualizationMode.Smoke)
             {
-                cells[i, j].color = smokeDensityGradient.Evaluate( Mathf.Clamp01(value/maxDensity));
+                cells[i, j].color = Color.Lerp(backgroundColor, Color.white, Mathf.Clamp01(value/maxDensity));
             } else if (mode == VisualizationMode.Vorticity)
             {
                 clampedValue = value;
@@ -402,8 +408,8 @@ namespace FluidSim
             Color velColor = velocityGradient.Evaluate(t);
             
             float densityClamped = Mathf.Clamp01(density/maxDensity);
-            velColor.a = densityClamped;
-            cells[i, j].color = velColor;
+            
+            cells[i, j].color = Color.Lerp(backgroundColor, velColor, densityClamped);
         }
         
         void RenderCell(Vector2 velocity, int i, int j)

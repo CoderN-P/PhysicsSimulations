@@ -155,16 +155,17 @@ MonoBehaviour:
   width: 160
   height: 90
   cellSize: 0.055
-  overrelaxationFactor: 1.7
-  pressureSolveIterations: 20
+  overrelaxationFactor: 1.9
+  pressureSolveIterations: 30
   timeStep: 0.01666667
   project: 1
   advect: 1
   initializeRandom: 1
-  paused: 0
+  paused: 1
   stepping: 0
-  leftWallForce: 6
-  sigma: 0.2
+  resetPressureField: 1
+  leftWallForce: 10
+  sigma: 0.3
   injectionDensity: 5
   vortexShedding: 1
   fluidRenderer: {fileID: 1134022164}
@@ -395,8 +396,8 @@ MonoBehaviour:
   showArrows: 0
   enableArrows: 0
   usePixelInterpolation: 1
-  texWidth: 320
-  texHeight: 180
+  texWidth: 160
+  texHeight: 90
   velocityGradient:
     serializedVersion: 2
     key0: {r: 0.1054201, g: 0.6681849, b: 0.9716981, a: 1}
@@ -459,47 +460,17 @@ MonoBehaviour:
     m_NumAlphaKeys: 2
   pressureGradient:
     serializedVersion: 2
-    key0: {r: 0, g: 0.7169812, b: 0.048721272, a: 1}
-    key1: {r: 0.45611897, g: 0.18396229, b: 1, a: 1}
-    key2: {r: 0, g: 0, b: 0, a: 0}
+    key0: {r: 0.023584902, g: 0.12130221, b: 1, a: 1}
+    key1: {r: 0, g: 0, b: 0, a: 1}
+    key2: {r: 0.9811321, g: 0, b: 0.0553193, a: 0}
     key3: {r: 0, g: 0, b: 0, a: 0}
     key4: {r: 0, g: 0, b: 0, a: 0}
     key5: {r: 0, g: 0, b: 0, a: 0}
     key6: {r: 0, g: 0, b: 0, a: 0}
     key7: {r: 0, g: 0, b: 0, a: 0}
     ctime0: 0
-    ctime1: 65535
-    ctime2: 0
-    ctime3: 0
-    ctime4: 0
-    ctime5: 0
-    ctime6: 0
-    ctime7: 0
-    atime0: 0
-    atime1: 65535
-    atime2: 0
-    atime3: 0
-    atime4: 0
-    atime5: 0
-    atime6: 0
-    atime7: 0
-    m_Mode: 2
-    m_ColorSpace: -1
-    m_NumColorKeys: 2
-    m_NumAlphaKeys: 2
-  smokeDensityGradient:
-    serializedVersion: 2
-    key0: {r: 0, g: 0, b: 0, a: 1}
-    key1: {r: 1, g: 1, b: 1, a: 1}
-    key2: {r: 0, g: 0, b: 0, a: 0}
-    key3: {r: 0, g: 0, b: 0, a: 0}
-    key4: {r: 0, g: 0, b: 0, a: 0}
-    key5: {r: 0, g: 0, b: 0, a: 0}
-    key6: {r: 0, g: 0, b: 0, a: 0}
-    key7: {r: 0, g: 0, b: 0, a: 0}
-    ctime0: 0
-    ctime1: 65535
-    ctime2: 0
+    ctime1: 32768
+    ctime2: 65535
     ctime3: 0
     ctime4: 0
     ctime5: 0
@@ -515,7 +486,7 @@ MonoBehaviour:
     atime7: 0
     m_Mode: 0
     m_ColorSpace: -1
-    m_NumColorKeys: 2
+    m_NumColorKeys: 3
     m_NumAlphaKeys: 2
   vorticityGradient:
     serializedVersion: 2
@@ -547,20 +518,21 @@ MonoBehaviour:
     m_ColorSpace: -1
     m_NumColorKeys: 4
     m_NumAlphaKeys: 2
-  solidCellColor: {r: 0.24528301, g: 0.24528301, b: 0.24528301, a: 0.48235294}
+  backgroundColor: {r: 0, g: 0, b: 0, a: 0}
+  solidCellColor: {r: 0, g: 0, b: 0, a: 1}
   interpolationQuad: {fileID: 1208754034}
   maxVelocityMagnitude: 10
   maxDivergenceMagnitude: 10
   maxVelocityArrowLength: 0.1
-  maxPressureMagnitude: 10
+  maxPressureMagnitude: 0.2
   maxVorticityMagnitude: 15
   maxDensity: 2
   brushVelocityStrength: 0.2
   brushDensityStrength: 0.6
   brushEnabled: 1
-  obstaclePosition: {x: -3, y: 0}
-  obstacleRadius: 0.5
-  obstacleOutlineThickness: 0.05
+  obstaclePosition: {x: -2.7, y: 0}
+  obstacleRadius: 0.7
+  obstacleOutlineThickness: 0.02
   obstaclePrefab: {fileID: 3092130167986184898, guid: 229f6ef575c684732a1a66cdbdbcce57, type: 3}
 --- !u!4 &1134022165
 Transform:

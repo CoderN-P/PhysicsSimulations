@@ -21,6 +21,7 @@ namespace FluidSim
         public bool initializeRandom;
         public bool paused;
         public bool stepping;
+        public bool resetPressureField;
         
         
         [Header("Vortex Shedding Parameters")]
@@ -42,7 +43,7 @@ namespace FluidSim
                 Destroy(gameObject);
             
             // Initialize fluid solver
-            fluidSolver = new FluidSolver(width, height, cellSize, overrelaxationFactor, pressureSolveIterations, vortexShedding, initializeRandom);
+            fluidSolver = new FluidSolver(width, height, cellSize, vortexShedding, initializeRandom);
             fluidRenderer.Initialize();
         }
 

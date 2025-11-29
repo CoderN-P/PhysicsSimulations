@@ -14,6 +14,7 @@ namespace FluidSim
         public bool showArrows;
         public bool enableArrows;
         public bool usePixelInterpolation;
+        public bool useGPU;
         public int texWidth = 1280;
         public int texHeight = 720;
         
@@ -27,6 +28,7 @@ namespace FluidSim
         
         [Header("Interpolation")]
         public GameObject interpolationQuad;
+        public ComputeShader fluidTextureShader;
         
         [Header("Value Ranges")]
         public float maxVelocityMagnitude;
@@ -41,13 +43,7 @@ namespace FluidSim
         public float brushDensityStrength;
         public bool brushEnabled;
         
-        [Header("Vortex Shedding")]
-        public Vector2 obstaclePosition;
-        public float obstacleRadius;
-        public float obstacleOutlineThickness;
-        public GameObject obstaclePrefab;
-        
-        private Vector2 bottomLeft; // Bottom-left position of the grid in world coordinates
+        public Vector2 bottomLeft; // Bottom-left position of the grid in world coordinates
         private ArrowManager[,] vectorArrows;
         private SpriteRenderer[,] cells;
 
@@ -55,15 +51,38 @@ namespace FluidSim
         private int height => FluidSim.Instance.height;
         private float cellSize => FluidSim.Instance.cellSize;
         private float brushRadius = 0f;
-        private bool draggingObstacle;
 
         private Texture2D cellTexture;
+        private RenderTexture outputTexture;
         private Color[] pixels;
         
-        private CircularObstacleManager obstacleVisualizer;
+        private Texture2D velocityLUT;
+        private Texture2D pressureLUT;
+        private Texture2D vorticityLUT;
+        
+        ComputeBuffer uBuf, vBuf, densityBuf, pressureBuf, vorticityBuf, solidBuf;
+        public int kernel;
         
         
-
+        // When use GPU changes, modify the quad texture while in play mode
+        
+        #if UNITY_EDITOR
+        private void OnValidate()
+        {
+            if (interpolationQuad != null && Application.isPlaying)
+            {
+                if (useGPU && outputTexture != null)
+                {
+                    interpolationQuad.GetComponent<Renderer>().material.mainTexture = outputTexture;
+                }
+                else if (!useGPU && cellTexture != null)
+                {
+                    interpolationQuad.GetComponent<Renderer>().material.mainTexture = cellTexture;
+                }
+            }
+        }
+        #endif
+        
         public void Initialize()
         {
 
@@ -87,17 +106,40 @@ namespace FluidSim
                 interpolationQuad.transform.localScale = new Vector3(w, h, 1);
                 Vector2 center = bottomLeft + new Vector2(w/2f, h/2f);
                 interpolationQuad.transform.position = center;
-                interpolationQuad.GetComponent<Renderer>().material.mainTexture = cellTexture;
+
+                if (useGPU)
+                {
+                    interpolationQuad.GetComponent<Renderer>().material.mainTexture = outputTexture;
+                }
+                else
+                {
+                    interpolationQuad.GetComponent<Renderer>().material.mainTexture = cellTexture;
+                }
+
+                // Generate lookup textures for gradients
+                velocityLUT = GradientToTexture(velocityGradient);
+                pressureLUT = GradientToTexture(pressureGradient);
+                vorticityLUT = GradientToTexture(vorticityGradient);
+                
+                kernel = fluidTextureShader.FindKernel("CSMain");
+
+                int count = width * height;
+
+                uBuf        = new ComputeBuffer((width+1)*height, sizeof(float));
+                vBuf        = new ComputeBuffer((height+1)*width, sizeof(float));
+                densityBuf  = new ComputeBuffer(count, sizeof(float));
+                pressureBuf = new ComputeBuffer(count, sizeof(float));
+                vorticityBuf= new ComputeBuffer(count, sizeof(float));
+                solidBuf    = new ComputeBuffer(count, sizeof(int));
+
+                outputTexture = new RenderTexture(texWidth, texHeight, 0,
+                    RenderTextureFormat.ARGB32);
+                outputTexture.enableRandomWrite = true;
+                outputTexture.Create();
             }
 
             if (enableArrows)
                 InitializeArrows();
-
-            if (FluidSim.Instance.vortexShedding)
-            {
-                InitializeSolidObstacleCells();
-                obstacleVisualizer = Instantiate(obstaclePrefab, obstaclePosition, Quaternion.identity).GetComponent<CircularObstacleManager>();
-            }
         }
 
         public void GetKeyboardInput()
@@ -119,7 +161,6 @@ namespace FluidSim
             }
             
             // If s is pressed, step simulation one step
-            
             if (Input.GetKeyDown(KeyCode.S)) 
             {
                 FluidSim.Instance.stepping = true;
@@ -133,76 +174,6 @@ namespace FluidSim
                 FluidSim.Instance.paused = true;
                 FluidSim.Instance.fluidSolver.Step(FluidSim.Instance.project, FluidSim.Instance.advect, FluidSim.Instance.leftWallForce);
             }
-        }
-
-        public void UpdateObstaclePosition()
-        {
-            if (!FluidSim.Instance.vortexShedding) // Only enabled for vortex shedding
-                return;
-            
-            Vector2 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-            
-            // Check if mouse is within obstacle radius and left mouse button is held
-            
-            if (Vector2.Distance(mousePos, obstaclePosition) <= obstacleRadius && Input.GetMouseButton(0))
-            {
-                brushEnabled = false; // Disable brush while dragging obstacle
-                draggingObstacle = true;
-            }
-            
-            if (draggingObstacle && Input.GetMouseButton(0))
-            {
-                Vector2 oldPos = obstaclePosition;
-                obstaclePosition = mousePos;
-                ModifySolidMapForObstacle(oldPos, obstaclePosition);
-            }
-            else if (draggingObstacle && !Input.GetMouseButton(0))
-            {
-                draggingObstacle = false;
-                brushEnabled = true; // Re-enable brush after dragging
-            }
-        }
-        
-        public void ModifySolidMapForObstacle(Vector2 oldPos, Vector2 newPos)
-        {
-            if (!FluidSim.Instance.vortexShedding)
-                return;
-
-            var solver = FluidSim.Instance.fluidSolver;
-
-            int radiusCells = Mathf.CeilToInt(obstacleRadius / cellSize);
-
-            // --- NEW CENTER ---
-            int newCI = Mathf.FloorToInt((newPos.x - bottomLeft.x) / cellSize);
-            int newCJ = Mathf.FloorToInt((newPos.y - bottomLeft.y) / cellSize);
-
-            Vector2 obstacleVel = (newPos - oldPos) / Time.deltaTime;
-
-            for (int i = 1; i < width - 1; i++)
-            {
-                for (int j = 1; j < height - 1; j++)
-                {
-                    solver.solid[i, j] = 0;
-                    
-                    // Check if within obstacle radius
-                    float dx = i + 0.5f - newCI;
-                    float dy = j + 0.5f - newCJ;
-                    if (dx*dx + dy*dy <= radiusCells * radiusCells)
-                    {
-                        solver.solid[i, j] = 1;
-
-                        // Set velocity to obstacle velocity
-                        solver.uGrid[i, j] = obstacleVel.x;
-                        solver.vGrid[i, j] = obstacleVel.y;
-                        solver.uGrid[i+1, j] = obstacleVel.x;
-                        solver.vGrid[i, j+1] = obstacleVel.y;
-                        
-                        solver.density[i, j] = 1f;
-                    }
-                }
-            }
-            
-            FluidSim.Instance.fluidSolver.pressure = new float[width, height]; // Reset pressure field
         }
         
         void GetBottomLeft()
@@ -251,12 +222,6 @@ namespace FluidSim
             }
         }
 
-        void InitializeSolidObstacleCells()
-        {
-            // Initialize solid cells for vortex shedding obstacle
-            ModifySolidMapForObstacle(obstaclePosition, obstaclePosition);
-        }
-
         void InitializeArrows()
         {
             for (int i = 0; i < width; i++)
@@ -268,6 +233,74 @@ namespace FluidSim
                 }
             }
         }
+        
+        Texture2D GradientToTexture(Gradient g, int resolution = 256)
+        {
+            Texture2D tex = new Texture2D(resolution, 1, TextureFormat.RGBA32, false)
+            {
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear
+            };
+
+            for (int i = 0; i < resolution; i++)
+            {
+                float t = i / (resolution - 1f);
+                tex.SetPixel(i, 0, g.Evaluate(t));
+            }
+            tex.Apply();
+            return tex;
+        }
+
+        void RenderGPU()
+        {
+            var sim = FluidSim.Instance.fluidSolver;
+
+            uBuf.SetData(sim.uGrid);
+            vBuf.SetData(sim.vGrid);
+            densityBuf.SetData(sim.density);
+            pressureBuf.SetData(sim.pressure);
+            vorticityBuf.SetData(sim.omega);
+            solidBuf.SetData(sim.solid);
+
+            // Bind buffers
+            fluidTextureShader.SetBuffer(kernel, "U", uBuf);
+            fluidTextureShader.SetBuffer(kernel, "V", vBuf);
+            fluidTextureShader.SetBuffer(kernel, "Density", densityBuf);
+            fluidTextureShader.SetBuffer(kernel, "Pressure", pressureBuf);
+            fluidTextureShader.SetBuffer(kernel, "Vorticity", vorticityBuf);
+            fluidTextureShader.SetBuffer(kernel, "Solid", solidBuf);
+
+            // Bind LUTs
+            fluidTextureShader.SetTexture(kernel, "VelocityLUT", velocityLUT);
+            fluidTextureShader.SetTexture(kernel, "PressureLUT", pressureLUT);
+            fluidTextureShader.SetTexture(kernel, "VorticityLUT", vorticityLUT);
+
+            // Bind output target
+            fluidTextureShader.SetTexture(kernel, "Result", outputTexture);
+
+            // Set parameters
+            fluidTextureShader.SetInt("Width", width);
+            fluidTextureShader.SetInt("Height", height);
+            fluidTextureShader.SetInt("textureWidth", texWidth);
+            fluidTextureShader.SetInt("textureHeight", texHeight);
+            fluidTextureShader.SetFloat("CellSize", cellSize);
+
+            fluidTextureShader.SetFloat("MaxVelocityMag", maxVelocityMagnitude);
+            fluidTextureShader.SetFloat("MaxDensity", maxDensity);
+            fluidTextureShader.SetFloat("MaxPressureMag", maxPressureMagnitude);
+            fluidTextureShader.SetFloat("MaxVorticityMag", maxVorticityMagnitude);
+
+            fluidTextureShader.SetVector("solidCellColor", solidCellColor);
+            fluidTextureShader.SetVector("backgroundColor", backgroundColor);
+
+            fluidTextureShader.SetInt("visualizationMode", (int)visualizationMode);
+
+            // Dispatch
+            int groupsX = Mathf.CeilToInt(texWidth / 8f);
+            int groupsY = Mathf.CeilToInt(texHeight / 8f);
+
+            fluidTextureShader.Dispatch(kernel, groupsX, groupsY, 1);
+        }
 
         void RenderPixel(int px, int py, int index)
         {
@@ -277,10 +310,23 @@ namespace FluidSim
             float worldY = (py + 0.5f) * (gridWorldHeight / texHeight);
             Vector2 worldPos = new Vector2(worldX, worldY);
             
+            // Check if pixel is inside a solid cell
+            int cellI = Mathf.FloorToInt((worldPos.x) / cellSize);
+            int cellJ = Mathf.FloorToInt((worldPos.y) / cellSize);
+            
+            if (cellI >= 0 && cellI < width && cellJ >= 0 && cellJ < height)
+            {
+                if (FluidSim.Instance.fluidSolver.solid[cellI, cellJ] == 1)
+                {
+                    pixels[index] = solidCellColor;
+                    return;
+                }
+            }
+            
             if (visualizationMode == VisualizationMode.SmokeWithVelocity)
             {
                 Vector2 velocity = FluidSim.Instance.fluidSolver.VelocityAtWorldPos(worldPos);
-                float density = FluidSim.Instance.fluidSolver.DensityAtWorldPos(worldPos);
+                float density = FluidSim.Instance.fluidSolver.SampleBillinear(FluidSim.Instance.fluidSolver.density, worldPos);
                 float velMagnitude = velocity.magnitude;
                 float t = Mathf.Clamp01(Mathf.Abs(velMagnitude) / maxVelocityMagnitude);
                 Color velColor = velocityGradient.Evaluate(t);
@@ -295,21 +341,36 @@ namespace FluidSim
                 pixels[index] = velocityGradient.Evaluate(t);
             } else if (visualizationMode == VisualizationMode.Smoke)
             {
-                float density = FluidSim.Instance.fluidSolver.DensityAtWorldPos(worldPos);
+                float density = FluidSim.Instance.fluidSolver.SampleBillinear(FluidSim.Instance.fluidSolver.density, worldPos);
                 pixels[index] = Color.Lerp(backgroundColor, Color.white, Mathf.Clamp01(density / maxDensity));
             } else if (visualizationMode == VisualizationMode.Pressure)
             {
-                float pressure = FluidSim.Instance.fluidSolver.PressureAtWorldPos(worldPos);
+                float pressure = FluidSim.Instance.fluidSolver.SampleBillinear(FluidSim.Instance.fluidSolver.pressure, worldPos);
                 pixels[index] = pressureGradient.Evaluate(Mathf.InverseLerp(-maxPressureMagnitude, maxPressureMagnitude, pressure));
+            } else if (visualizationMode == VisualizationMode.Vorticity)
+            {
+                float vorticity = FluidSim.Instance.fluidSolver.SampleBillinear(FluidSim.Instance.fluidSolver.omega, worldPos);
+                pixels[index] = vorticityGradient.Evaluate(Mathf.InverseLerp(-maxVorticityMagnitude, maxVorticityMagnitude, vorticity));
+            } else if (visualizationMode == VisualizationMode.SmokeWithPressure)
+            {
+                float pressure = FluidSim.Instance.fluidSolver.SampleBillinear(FluidSim.Instance.fluidSolver.pressure, worldPos);
+                float density = FluidSim.Instance.fluidSolver.SampleBillinear(FluidSim.Instance.fluidSolver.density, worldPos);
+                Color pressureColor = pressureGradient.Evaluate(Mathf.InverseLerp(-maxPressureMagnitude, maxPressureMagnitude, pressure));
+            
+                float densityClamped = Mathf.Clamp01(density/maxDensity);
+                pixels[index] = Color.Lerp(backgroundColor, pressureColor, densityClamped);
             }
         }
 
         void RenderTexture()
         {
-            if (visualizationMode != VisualizationMode.Velocity &&
-                visualizationMode != VisualizationMode.Smoke &&
-                visualizationMode != VisualizationMode.SmokeWithVelocity &&
-                visualizationMode != VisualizationMode.Pressure)
+            if (useGPU)
+            {
+                RenderGPU();
+                return;
+            }
+            
+            if (visualizationMode == VisualizationMode.Divergence)
                 return;
 
             for (int px = 0; px < texWidth; px++)
@@ -446,17 +507,8 @@ namespace FluidSim
             vectorArrows[i, j].Draw(startPos, endPos, 1);
         }
 
-        public void RegisterEmitter(Vector2 worldPos, float radius, float rate, float falloff)
-        {
-            Vector2 simulationPos = worldPos - bottomLeft;
-            FluidSim.Instance.fluidSolver.RegisterEmitter(simulationPos, radius, rate, falloff);
-        }
-
         public void Render(float[,] uGrid, float[,] vGrid, int[,] solid)
         {
-            if (FluidSim.Instance.vortexShedding)
-                obstacleVisualizer.Draw(obstacleRadius, obstacleOutlineThickness, obstaclePosition);   
-            
             if (usePixelInterpolation)
             {
                 RenderTexture();

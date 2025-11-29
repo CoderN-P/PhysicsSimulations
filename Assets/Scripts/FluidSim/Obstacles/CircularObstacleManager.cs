@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace FluidSim
+namespace FluidSim.Obstacles
 {
     public class CircularObstacleManager : MonoBehaviour
     {

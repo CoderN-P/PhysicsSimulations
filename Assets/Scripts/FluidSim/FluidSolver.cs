@@ -18,19 +18,6 @@ namespace FluidSim
 
         public float[,] omega; // Vorticity grid
         
-        // Structs
-
-        public struct SmokeEmitter
-        {
-            public Vector2 position;
-            public float radius;
-            public float rate;
-            public float falloff;
-        }
-        
-        private List<SmokeEmitter> smokeEmitters = new List<SmokeEmitter>();
-        
-
         // Temp grids for advection
         public float[,] tempUGrid;
         public float[,] tempVGrid;
@@ -82,10 +69,6 @@ namespace FluidSim
                 SetRandomVelocities();
         }
         
-        public void RegisterEmitter(Vector2 simulationPos, float radius, float rate, float falloff = 1f) {
-            smokeEmitters.Add(new SmokeEmitter { position = simulationPos, radius = radius, rate = rate, falloff = Mathf.Clamp01(falloff) });
-        }
-        
         void AddConstantForceToLeftWall(float force)
         {
             for (int j = 0; j < height; j++)
@@ -98,17 +81,10 @@ namespace FluidSim
                 vGrid[0, j] = 0;
             }
         }
-
-        void AddSmokeSources(float dt)
-        {
-            if (smokeEmitters.Count == 0) return;
-            foreach (var e in smokeEmitters)
-                AddEmitterToDensity(e, dt);
-            smokeEmitters.Clear();
-        }
         
-        void AddEmitterToDensity(SmokeEmitter emitter, float dt)
+        public void ApplyEmitter(Emitter emitter)
         {
+            float dt = FluidSim.Instance.timeStep;
             int centerX = Mathf.RoundToInt(emitter.position.x / cellSize);
             int centerY = Mathf.RoundToInt(emitter.position.y / cellSize);
             int radiusInCells = Mathf.CeilToInt(emitter.radius / cellSize);
@@ -122,8 +98,16 @@ namespace FluidSim
                     float dist = Vector2.Distance(new Vector2(i * cellSize, j * cellSize), emitter.position);
                     if (dist <= emitter.radius)
                     {
+                        
                         float falloffFactor = emitter.falloff > 0 ? Mathf.Pow(1 - dist / emitter.radius, emitter.falloff) : 1f;
                         density[i, j] += emitter.rate * falloffFactor * dt;
+                        
+                        Vector2 jetVel = emitter.direction * emitter.speed * falloffFactor * dt;
+                        
+                        uGrid[i, j]     += jetVel.x;
+                        uGrid[i+1, j]   += jetVel.x;
+                        vGrid[i, j]     += jetVel.y;
+                        vGrid[i, j+1]   += jetVel.y;
                     }
                 }
             }
@@ -257,8 +241,8 @@ namespace FluidSim
                 sy
             );
         }
-        
-        public float DensityAtWorldPos(Vector2 pos)
+
+        public float SampleBillinear(float[,] values, Vector2 pos)
         {
             float gridX = pos.x / cellSize - 0.5f;
             float gridY = pos.y / cellSize - 0.5f;
@@ -272,46 +256,10 @@ namespace FluidSim
             float sx = gridX - i0;
             
             return Mathf.Lerp(
-                Mathf.Lerp(density[i0, j0], density[i1, j0], sx),
-                Mathf.Lerp(density[i0, j1], density[i1, j1], sx),
+                Mathf.Lerp(values[i0, j0], values[i1, j0], sx),
+                Mathf.Lerp(values[i0, j1], values[i1, j1], sx),
                 sy
             );
-        }
-
-        public float PressureAtWorldPos(Vector2 pos)
-        {
-            float gridX = pos.x / cellSize - 0.5f;
-            float gridY = pos.y / cellSize - 0.5f;
-            
-            int i0 = Mathf.Clamp(Mathf.FloorToInt(gridX), 0, width - 1);
-            int i1 = Mathf.Clamp(i0 + 1, 0, width - 1);
-            int j0 = Mathf.Clamp(Mathf.FloorToInt(gridY), 0, height - 1);
-            int j1 = Mathf.Clamp(j0 + 1, 0, height - 1);
-            
-            float sy = gridY - j0;
-            float sx = gridX - i0;
-            
-            return Mathf.Lerp(
-                Mathf.Lerp(pressure[i0, j0], pressure[i1, j0], sx),
-                Mathf.Lerp(pressure[i0, j1], pressure[i1, j1], sx),
-                sy
-            );
-        }
-
-        public float GetMaxPressure()
-        {
-            float maxPressure = float.MinValue;
-            for (int i = 0; i < width; i++)
-            {
-                for (int j = 0; j < height; j++)
-                {
-                    if (pressure[i, j] > maxPressure)
-                    {
-                        maxPressure = pressure[i, j];
-                    }
-                }
-            }
-            return maxPressure;
         }
 
         void AdvectSmoke()
@@ -323,7 +271,7 @@ namespace FluidSim
                     Vector2 pos = new Vector2((i + 0.5f) * cellSize, (j + 0.5f) * cellSize);
                     Vector2 vel = VelocityAtWorldPos(pos);
                     Vector2 backPos = pos - vel * FluidSim.Instance.timeStep;
-                    tempDensity[i, j] = DensityAtWorldPos(backPos);
+                    tempDensity[i, j] = SampleBillinear(density, backPos);
                 }
             }
             
@@ -476,6 +424,7 @@ namespace FluidSim
                 uGrid[brushForce.i, brushForce.j] += brushForce.force.x;
                 vGrid[brushForce.i, brushForce.j] += brushForce.force.y;
             }
+
             pendingBrushForces.Clear();   
         }
 
@@ -501,16 +450,12 @@ namespace FluidSim
             if (advect)
                 AdvectVelocities();
             
-            if (vortexShedding)
-                FluidSim.Instance.fluidRenderer.UpdateObstaclePosition();
             
             UpdatePressureField();
             
             
             if (project)
                 ProjectVelocities();
-            
-            AddSmokeSources(FluidSim.Instance.timeStep);
 
             if (vortexShedding)
             {

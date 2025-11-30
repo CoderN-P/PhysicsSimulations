@@ -12,6 +12,7 @@ namespace FluidSim
         public float radius = 1f;
         public float speed;
         public float angle;
+        public Color c;
         
         public float outlineThickness = 0.1f;
         public bool visible = true;
@@ -67,7 +68,8 @@ namespace FluidSim
                     rate,
                     falloff,
                     direction,
-                    speed
+                    speed,
+                    c
                 );
 
                 FluidSim.Instance.fluidSolver.ApplyEmitter(cur);

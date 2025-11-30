@@ -15,6 +15,9 @@ namespace FluidSim
         public int[,] solid;
         public float[,] pressure;
         public float[,] density;
+        public float[,] rGrid;
+        public float[,] gGrid;
+        public float[,] bGrid;
 
         public float[,] omega; // Vorticity grid
         
@@ -22,8 +25,9 @@ namespace FluidSim
         public float[,] tempUGrid;
         public float[,] tempVGrid;
         public float[,] tempDensity;
-        
-        public float maxPressure = float.MinValue;
+        public float[,] tempRGrid;
+        public float[,] tempGGrid;
+        public float[,] tempBGrid;
         
         public struct BrushForce
         {
@@ -51,6 +55,12 @@ namespace FluidSim
             pressure = new float[width, height];
             density = new float[width, height];
             omega = new float[width, height];
+            rGrid = new float[width, height];
+            gGrid = new float[width, height];
+            bGrid = new float[width, height];
+            tempRGrid = new float[width, height];
+            tempGGrid = new float[width, height];
+            tempBGrid = new float[width, height];
             
             for (int i = 0; i < width; i++)
             {
@@ -101,6 +111,9 @@ namespace FluidSim
                         
                         float falloffFactor = emitter.falloff > 0 ? Mathf.Pow(1 - dist / emitter.radius, emitter.falloff) : 1f;
                         density[i, j] += emitter.rate * falloffFactor * dt;
+                        rGrid[i, j] = emitter.c.r;
+                        gGrid[i, j] = emitter.c.g;
+                        bGrid[i, j] = emitter.c.b;
                         
                         Vector2 jetVel = emitter.direction * emitter.speed * falloffFactor * dt;
                         
@@ -283,7 +296,50 @@ namespace FluidSim
                     density[i, j] = tempDensity[i, j];
                 }
             }
-        } 
+        }
+
+        void AdvectDye(int channel)
+        {
+            float[,] targetGrid;
+            float[,] tempGrid;
+            switch (channel)
+            {
+                case 0:
+                    targetGrid = rGrid;
+                    tempGrid = tempRGrid;
+                    break;
+                case 1:
+                    targetGrid = gGrid;
+                    tempGrid = tempGGrid;
+                    break;
+                case 2:
+                    targetGrid = bGrid;
+                    tempGrid = tempBGrid;
+                    break;
+                default:
+                    return;
+            }
+
+            for (int i = 1; i < width - 1; i++)
+            {
+                for (int j = 1; j < height - 1; j++)
+                {
+                    Vector2 pos = new Vector2((i + 0.5f) * cellSize, (j + 0.5f) * cellSize);
+                    Vector2 vel = VelocityAtWorldPos(pos);
+                    Vector2 backPos = pos - vel * FluidSim.Instance.timeStep;
+                    tempGrid[i, j] = SampleBillinear(targetGrid, backPos);
+                }
+            }
+
+            // Swap temp and main grids
+            for (int i = 0; i < width; i++)
+            {
+                for (int j = 0; j < height; j++)
+                {
+                    targetGrid[i, j] = tempGrid[i, j];
+                }
+            }
+        }
 
         void AdvectVelocities()
         {
@@ -439,6 +495,30 @@ namespace FluidSim
                 density[0, j] = falloff*FluidSim.Instance.injectionDensity;
             }
         }
+
+        void InjectColorForVortexShedding()
+        {
+            for (int j = 0; j < height; j++)
+            {
+                float center = height * 0.5f;
+                float dy = j - center;
+                // float falloff = Mathf.Exp(-dy * dy / (2 * FluidSim.Instance.sigma * FluidSim.Instance.sigma));
+                float falloff = Mathf.Abs(dy) <= FluidSim.Instance.sigma/cellSize ? 1 : 0;
+                
+                if (dy < 0)
+                {
+                    rGrid[0, j] = falloff;
+                    gGrid[0, j] = 0;
+                    bGrid[0, j] = 0;
+                }
+                else
+                {
+                    bGrid[0, j] = falloff;
+                    rGrid[0, j] = 0;
+                    gGrid[0, j] = 0;
+                }
+            }
+        }
         
         public void Step(bool project, bool advect, float forceMagnitude = 100f)
         {
@@ -460,10 +540,19 @@ namespace FluidSim
             if (vortexShedding)
             {
                 InjectDensityForVortexShedding();
+                InjectColorForVortexShedding();
             }
+
             if (advect)
+            {
                 AdvectSmoke();
-            
+                if (FluidSim.Instance.enableDye)
+                {
+                    for (int c = 0; c < 3; c++)
+                        AdvectDye(c);
+                }
+            }
+
             UpdateVorticityMap();
         }
     }

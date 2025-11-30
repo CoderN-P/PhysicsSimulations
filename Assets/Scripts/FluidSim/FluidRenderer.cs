@@ -60,7 +60,7 @@ namespace FluidSim
         private Texture2D pressureLUT;
         private Texture2D vorticityLUT;
         
-        ComputeBuffer uBuf, vBuf, densityBuf, pressureBuf, vorticityBuf, solidBuf;
+        ComputeBuffer uBuf, vBuf, densityBuf, pressureBuf, vorticityBuf, solidBuf, redBuf, greenBuf, blueBuf;
         public int kernel;
         
         
@@ -130,7 +130,11 @@ namespace FluidSim
                 densityBuf  = new ComputeBuffer(count, sizeof(float));
                 pressureBuf = new ComputeBuffer(count, sizeof(float));
                 vorticityBuf= new ComputeBuffer(count, sizeof(float));
+                redBuf      = new ComputeBuffer(count, sizeof(float));
+                greenBuf    = new ComputeBuffer(count, sizeof(float));
+                blueBuf     = new ComputeBuffer(count, sizeof(float));
                 solidBuf    = new ComputeBuffer(count, sizeof(int));
+                
 
                 outputTexture = new RenderTexture(texWidth, texHeight, 0,
                     RenderTextureFormat.ARGB32);
@@ -254,13 +258,50 @@ namespace FluidSim
         void RenderGPU()
         {
             var sim = FluidSim.Instance.fluidSolver;
-
-            uBuf.SetData(sim.uGrid);
-            vBuf.SetData(sim.vGrid);
-            densityBuf.SetData(sim.density);
-            pressureBuf.SetData(sim.pressure);
-            vorticityBuf.SetData(sim.omega);
-            solidBuf.SetData(sim.solid);
+            
+            float[] uFlat = new float[(width + 1) * height];
+            float[] vFlat = new float[(height + 1) * width];
+            float[] densityFlat = new float[width * height];
+            float[] pressureFlat = new float[width * height];
+            float[] vorticityFlat = new float[width * height];
+            float[] redFlat = new float[width * height];
+            float[] greenFlat = new float[width * height];
+            float[] blueFlat = new float[width * height];
+            int[] solidFlat = new int[width * height];
+            
+            for (int y = 0; y < height; y++)
+            for (int x = 0; x <= width; x++)
+                uFlat[x + y * (width + 1)] = sim.uGrid[x,y];
+            
+            for (int y = 0; y <= height; y++)
+            for (int x = 0; x < width; x++)
+                vFlat[x + y * width] = sim.vGrid[x,y];
+            
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int id = x + y * width; // row-major, matches HLSL
+                    
+                    densityFlat[id]  = sim.density[x, y];
+                    pressureFlat[id] = sim.pressure[x, y];
+                    vorticityFlat[id]= sim.omega[x, y];
+                    solidFlat[id]    = sim.solid[x, y];
+                    redFlat[id]      = sim.rGrid[x, y];
+                    greenFlat[id]    = sim.gGrid[x, y];
+                    blueFlat[id]     = sim.bGrid[x, y];
+                }
+            }
+            
+            uBuf.SetData(uFlat);
+            vBuf.SetData(vFlat);
+            densityBuf.SetData(densityFlat);
+            pressureBuf.SetData(pressureFlat);
+            vorticityBuf.SetData(vorticityFlat);
+            solidBuf.SetData(solidFlat);
+            redBuf.SetData(redFlat);
+            greenBuf.SetData(greenFlat);
+            blueBuf.SetData(blueFlat);
 
             // Bind buffers
             fluidTextureShader.SetBuffer(kernel, "U", uBuf);
@@ -268,6 +309,9 @@ namespace FluidSim
             fluidTextureShader.SetBuffer(kernel, "Density", densityBuf);
             fluidTextureShader.SetBuffer(kernel, "Pressure", pressureBuf);
             fluidTextureShader.SetBuffer(kernel, "Vorticity", vorticityBuf);
+            fluidTextureShader.SetBuffer(kernel, "R", redBuf);
+            fluidTextureShader.SetBuffer(kernel, "G", greenBuf);
+            fluidTextureShader.SetBuffer(kernel, "B", blueBuf);
             fluidTextureShader.SetBuffer(kernel, "Solid", solidBuf);
 
             // Bind LUTs
@@ -314,7 +358,7 @@ namespace FluidSim
             int cellI = Mathf.FloorToInt((worldPos.x) / cellSize);
             int cellJ = Mathf.FloorToInt((worldPos.y) / cellSize);
             
-            if (cellI >= 0 && cellI < width && cellJ >= 0 && cellJ < height)
+            if (cellI >= 0 && cellI < width && cellJ >= 0 && cellJ < height && visualizationMode != VisualizationMode.Debug)
             {
                 if (FluidSim.Instance.fluidSolver.solid[cellI, cellJ] == 1)
                 {
@@ -359,7 +403,32 @@ namespace FluidSim
             
                 float densityClamped = Mathf.Clamp01(density/maxDensity);
                 pixels[index] = Color.Lerp(backgroundColor, pressureColor, densityClamped);
+                
+            } else if (visualizationMode == VisualizationMode.Color)
+            {
+                float density = FluidSim.Instance.fluidSolver.SampleBillinear(FluidSim.Instance.fluidSolver.density, worldPos);
+                float r = FluidSim.Instance.fluidSolver.SampleBillinear(FluidSim.Instance.fluidSolver.rGrid, worldPos);
+                float g = FluidSim.Instance.fluidSolver.SampleBillinear(FluidSim.Instance.fluidSolver.gGrid, worldPos);
+                float b = FluidSim.Instance.fluidSolver.SampleBillinear(FluidSim.Instance.fluidSolver.bGrid, worldPos);
+
+                Color c = new Color(r, g, b);
+                pixels[index] = Color.Lerp(backgroundColor, c, Mathf.Clamp01(density / maxDensity));
             }
+            else if (visualizationMode == VisualizationMode.Debug)
+            {
+                float r = (float)cellI / (float)width;
+                float g = (float)cellJ / (float)height;
+
+                if (FluidSim.Instance.fluidSolver.solid[cellI, cellJ] == 1)
+                {
+                    pixels[index] = new Color(1, 1, 1);
+                }
+                else
+                {
+                    pixels[index] = new Color(r, g, 0f);
+                }
+            }
+            
         }
 
         void RenderTexture()

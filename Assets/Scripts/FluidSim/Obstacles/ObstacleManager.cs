@@ -139,12 +139,23 @@ namespace FluidSim.Obstacles
                 {
                     if (i >= 0 && i < width && j >= 0 && j < height)
                     {
-                        float distance = Vector2.Distance(
-                            new Vector2(i + 0.5f, j + 0.5f),
-                            new Vector2(oldCenterI + 0.5f, oldCenterJ + 0.5f)
+                        float maxDist = 0f;
+
+                        Vector2 C = new(oldCenterI, oldCenterJ);
+
+                        Vector2 c0 = new(i,   j);
+                        Vector2 c1 = new(i+1, j);
+                        Vector2 c2 = new(i,   j+1);
+                        Vector2 c3 = new(i+1, j+1);
+
+                        maxDist = Mathf.Max(
+                            Vector2.Distance(c0, C),
+                            Vector2.Distance(c1, C),
+                            Vector2.Distance(c2, C),
+                            Vector2.Distance(c3, C)
                         );
                         
-                        if (distance <= radiusInCells)
+                        if (maxDist <= radiusInCells-4*cellSize)
                         {
                             FluidSim.Instance.fluidSolver.solid[i, j] = 0; // Mark cell as fluid
                         }
@@ -161,12 +172,24 @@ namespace FluidSim.Obstacles
                 {
                     if (i >= 0 && i < width && j >= 0 && j < height)
                     {
-                        float distance = Vector2.Distance(
-                            new Vector2(i + 0.5f, j + 0.5f),
-                            new Vector2(newCenterI + 0.5f, newCenterJ + 0.5f)
+
+                        float maxDist = 0f;
+
+                        Vector2 C = new(newCenterI, newCenterJ);
+
+                        Vector2 c0 = new(i,   j);
+                        Vector2 c1 = new(i+1, j);
+                        Vector2 c2 = new(i,   j+1);
+                        Vector2 c3 = new(i+1, j+1);
+
+                        maxDist = Mathf.Max(
+                            Vector2.Distance(c0, C),
+                            Vector2.Distance(c1, C),
+                            Vector2.Distance(c2, C),
+                            Vector2.Distance(c3, C)
                         );
                         
-                        if (distance <= radiusInCells)
+                        if (maxDist <= radiusInCells-4*cellSize)
                         {
                             FluidSim.Instance.fluidSolver.solid[i, j] = 1; // Mark cell as solid
                         }

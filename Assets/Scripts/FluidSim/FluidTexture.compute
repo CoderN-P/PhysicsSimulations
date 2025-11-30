@@ -1,13 +1,15 @@
 #pragma kernel CSMain
 
-RWTexture2D<float4> Result;      // output render texture
+RWTexture2D<float4> Result;
 StructuredBuffer<float> U;
 StructuredBuffer<float> V;
 StructuredBuffer<float> Density;
 StructuredBuffer<float> Pressure;
 StructuredBuffer<float> Vorticity;
 StructuredBuffer<int> Solid;
-
+StructuredBuffer<float> R;
+StructuredBuffer<float> G;
+StructuredBuffer<float> B;
 
 Texture2D<float4> VelocityLUT;
 Texture2D<float4> PressureLUT;
@@ -28,130 +30,190 @@ float MaxPressureMag;
 float MaxVorticityMag;
 float4 solidCellColor;
 float4 backgroundColor;
-uint visualizationMode; // 0: velocity, 1: pressure, 2: density, 3: velocity+density
+uint visualizationMode;
 
-float bilinearSample(StructuredBuffer<float> buf, float2 uv)
+// Sample cell-centered data (density, pressure, vorticity)
+float sampleCellCentered(StructuredBuffer<float> buf, float2 worldPos)
 {
-    int x0 = clamp(floor(uv.x), 0, Width - 1);
+    // Convert world to grid coordinates (cell-centered)
+    float gridX = worldPos.x / CellSize - 0.5;
+    float gridY = worldPos.y / CellSize - 0.5;
+    
+    int x0 = clamp(floor(gridX), 0, Width - 1);
     int x1 = clamp(x0 + 1, 0, Width - 1);
-    int y0 = clamp(floor(uv.y), 0, Height - 1);
+    int y0 = clamp(floor(gridY), 0, Height - 1);
     int y1 = clamp(y0 + 1, 0, Height - 1);
-
-    float sx = uv.x - x0;
-    float sy = uv.y - y0;
-
+    
+    float sx = gridX - x0;
+    float sy = gridY - y0;
+    
     float c00 = buf[x0 + y0 * Width];
     float c10 = buf[x1 + y0 * Width];
     float c01 = buf[x0 + y1 * Width];
     float c11 = buf[x1 + y1 * Width];
-
+    
     float c0 = lerp(c00, c10, sx);
     float c1 = lerp(c01, c11, sx);
-
+    
     return lerp(c0, c1, sy);
+}
+
+// Sample U velocity (staggered: offset in Y)
+float sampleU(float2 worldPos)
+{
+    float gridX = worldPos.x / CellSize;
+    float gridY = worldPos.y / CellSize - 0.5;
+    
+    int x0 = clamp(floor(gridX), 0, Width);
+    int x1 = clamp(x0 + 1, 0, Width);
+    int y0 = clamp(floor(gridY), 0, Height - 1);
+    int y1 = clamp(y0 + 1, 0, Height - 1);
+    
+    float sx = gridX - x0;
+    float sy = gridY - y0;
+    
+    float c00 = U[x0 + y0 * (Width + 1)];
+    float c10 = U[x1 + y0 * (Width + 1)];
+    float c01 = U[x0 + y1 * (Width + 1)];
+    float c11 = U[x1 + y1 * (Width + 1)];
+    
+    float c0 = lerp(c00, c10, sx);
+    float c1 = lerp(c01, c11, sx);
+    
+    return lerp(c0, c1, sy);
+}
+
+// Sample V velocity (staggered: offset in X)
+float sampleV(float2 worldPos)
+{
+    float gridX = worldPos.x / CellSize - 0.5;
+    float gridY = worldPos.y / CellSize;
+    
+    int x0 = clamp(floor(gridX), 0, Width - 1);
+    int x1 = clamp(x0 + 1, 0, Width - 1);
+    int y0 = clamp(floor(gridY), 0, Height);
+    int y1 = clamp(y0 + 1, 0, Height);
+    
+    float sx = gridX - x0;
+    float sy = gridY - y0;
+    
+    float c00 = V[x0 + y0 * Width];
+    float c10 = V[x1 + y0 * Width];
+    float c01 = V[x0 + y1 * Width];
+    float c11 = V[x1 + y1 * Width];
+    
+    float c0 = lerp(c00, c10, sx);
+    float c1 = lerp(c01, c11, sx);
+    
+    return lerp(c0, c1, sy);
+}
+
+float InverseLerp(float a, float b, float x)
+{
+    return (x - a) / (b - a);
 }
 
 [numthreads(8,8,1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
 {
+    if (id.x >= textureWidth || id.y >= textureHeight) return;
+    
     float gridWidth = Width * CellSize;
     float gridHeight = Height * CellSize;
     
-    if (id.x >= textureWidth || id.y >= textureHeight) return;
-
-    // Map pixel to world coords
+    // Pixel → World position (exactly like CPU code)
     float worldX = (id.x + 0.5) * gridWidth / textureWidth;
     float worldY = (id.y + 0.5) * gridHeight / textureHeight;
-
-    // Convert to cell index
-    float gridX = worldX / CellSize;
-    float gridY = worldY / CellSize;
-
-    int i = clamp(floor(gridX), 0, Width - 1);
-    int j = clamp(floor(gridY), 0, Height - 1);
-
-    float4 color = float4(0,0,0,1);
+    float2 worldPos = float2(worldX, worldY);
     
-    if (Solid[i + j * Width] == 1)
+    // Check solid cells (exactly like CPU code)
+    int cellI = clamp(floor(worldX / CellSize), 0, Width - 1);
+    int cellJ = clamp(floor(worldY / CellSize), 0, Height - 1);
+    
+    if (Solid[cellI + cellJ * Width] == 1 && visualizationMode != 999)
     {
-        color = solidCellColor; // solidCellColor
-        Result[id.xy] = color;
+        Result[id.xy] = solidCellColor;
         return;
     }
     
-    if (visualizationMode == 0) // velocity
+    float4 color = float4(0, 0, 0, 1);
+    
+    if (visualizationMode == 0) // Velocity
     {
-        float u = bilinearSample(U, float2(gridX, gridY - 0.5));
-        float v = bilinearSample(V, float2(gridX - 0.5, gridY));
-        float velMag = length(float2(u,v));
-
-        float2 uv = float2(saturate(velMag / MaxVelocityMag), 0.5);
-        color = VelocityLUT.SampleLevel(sampler_VelocityLUT, uv, 0);
+        float u = sampleU(worldPos);
+        float v = sampleV(worldPos);
+        float velMag = length(float2(u, v));
+        
+        float t = saturate(velMag / MaxVelocityMag);
+        color = VelocityLUT.SampleLevel(sampler_VelocityLUT, float2(t, 0.5), 0);
     }
-    else if (visualizationMode == 1) // pressure
+    else if (visualizationMode == 1) // Pressure
     {
-        float pressure = bilinearSample(Pressure, float2(gridX - 0.5, gridY - 0.5));
-        float pMag = abs(pressure);
-
-        float2 uv = float2(saturate(pMag / MaxPressureMag), 0.5);
-        color = PressureLUT.SampleLevel(sampler_PressureLUT, uv, 0);
+        float pressure = sampleCellCentered(Pressure, worldPos);
+        float t = saturate(abs(pressure) / MaxPressureMag);
+        color = PressureLUT.SampleLevel(sampler_PressureLUT, float2(t, 0.5), 0);
     }
-    else if (visualizationMode == 2) // density
+    else if (visualizationMode == 2) // Density/Smoke
     {
-        float density = bilinearSample(Density, float2(gridX - 0.5, gridY - 0.5));
+        float density = sampleCellCentered(Density, worldPos);
         float t = saturate(density / MaxDensity);
-        color.rgb = lerp(backgroundColor, float3(1, 1, 1), t);
+        color.rgb = lerp(backgroundColor.rgb, float3(1, 1, 1), t);
     }
     else if (visualizationMode == 3) // Vorticity
     {
-        float vorticity = bilinearSample(Vorticity, float2(gridX - 0.5, gridY - 0.5));
-        float vMag = abs(vorticity);
-        float2 uv = float2(saturate(vMag / MaxVorticityMag), 0.5);
-        color = VorticityLUT.SampleLevel(sampler_VorticityLUT, uv, 0);
-    }
-    else if (visualizationMode == 4) // pressure + density
-    {
-        float pressure = bilinearSample(Pressure, float2(gridX - 0.5, gridY - 0.5));
-        float pMag = abs(pressure);
-
-        float density = bilinearSample(Density, float2(gridX - 0.5, gridY - 0.5));
-        float densityT = saturate(density / MaxDensity);
-
-        float2 uv = float2(saturate(pMag / MaxPressureMag), 0.5);
-        float3 pressureColor = PressureLUT.SampleLevel(sampler_PressureLUT, uv, 0).rgb;
-
-        color.rgb = lerp(backgroundColor, pressureColor, densityT);
-    }
-    else if (visualizationMode == 5) // velocity + density
-    {
-        float u = bilinearSample(U, float2(gridX, gridY - 0.5));
-        float v = bilinearSample(V, float2(gridX - 0.5, gridY));
-        float velMag = length(float2(u,v));
-
-        float density = bilinearSample(Density, float2(gridX - 0.5, gridY - 0.5));
+        float vorticity = sampleCellCentered(Vorticity, worldPos);
         
-        // simple example
-        float2 uv = float2(saturate(velMag / MaxVelocityMag), 0.5);
+        color = VorticityLUT.SampleLevel(sampler_VorticityLUT, float2(InverseLerp(-MaxVorticityMag, MaxVorticityMag, vorticity), 0.5), 0);
+    }
+    else if (visualizationMode == 4) // Pressure + Density
+    {
+        float pressure = sampleCellCentered(Pressure, worldPos);
+        float density = sampleCellCentered(Density, worldPos);
+        
+        float t = saturate(abs(pressure) / MaxPressureMag);
+        float3 pressureColor = PressureLUT.SampleLevel(sampler_PressureLUT, float2(t, 0.5), 0).rgb;
+        
         float densityT = saturate(density / MaxDensity);
+        color.rgb = lerp(backgroundColor.rgb, pressureColor, densityT);
+    }
+    else if (visualizationMode == 5) // Velocity + Density
+    {
+        float u = sampleU(worldPos);
+        float v = sampleV(worldPos);
+        float velMag = length(float2(u, v));
+        
+        float density = sampleCellCentered(Density, worldPos);
+        
+        float t = saturate(velMag / MaxVelocityMag);
+        float3 velColor = VelocityLUT.SampleLevel(sampler_VelocityLUT, float2(t, 0.5), 0).rgb;
+        
+        float densityT = saturate(density / MaxDensity);
+        color.rgb = lerp(backgroundColor.rgb, velColor, densityT);
+    }
+    else if (visualizationMode == 6) // Color
+    {
+        float density = sampleCellCentered(Density, worldPos);
+        float r = sampleCellCentered(R, worldPos);
+        float g = sampleCellCentered(G, worldPos);
+        float b = sampleCellCentered(B, worldPos);
 
-        float3 velColor = VelocityLUT.SampleLevel(sampler_VelocityLUT, uv, 0).rgb;
-        color.rgb = lerp(backgroundColor, velColor, densityT);
+        float t = saturate(density / MaxDensity);
+        color.rgb = lerp(backgroundColor.rgb, float3(r, g, b), t);
     }
     else if (visualizationMode == 999) // DEBUG
     {
-        // Show cell grid as checkerboard
-        int i = clamp(floor(gridX), 0, Width - 1);
-        int j = clamp(floor(gridY), 0, Height - 1);
+        int cellI = clamp(floor(worldPos.x / CellSize), 0, Width - 1);
+        int cellJ = clamp(floor(worldPos.y / CellSize), 0, Height - 1);
     
-        float checker = fmod(i + j, 2.0);
-        color = float4(checker, checker, checker, 1);
+        // Show cell coordinates as colors
+        float r = float(cellI) / float(Width);
+        float g = float(cellJ) / float(Height);
+        color = float4(r, g, 0, 1);
     
-        // Highlight solid cells in red
-        if (Solid[i + j * Width] == 1)
-        {
-            color = float4(1, 0, 0, 1); // RED for solid
-        }
+        // Solid cells in white
+        if (Solid[cellI + cellJ * Width] == 1)
+            color = float4(1, 1, 1, 1);
     }
+    
     Result[id.xy] = color;
 }
-

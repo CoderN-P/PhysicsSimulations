@@ -22,6 +22,7 @@ namespace FluidSim
         public bool paused;
         public bool stepping;
         public bool resetPressureField;
+        public bool enableDye;
         
         
         [Header("Vortex Shedding Parameters")]

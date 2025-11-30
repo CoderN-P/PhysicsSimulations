@@ -145,6 +145,7 @@ namespace FluidSim
             if (enableArrows)
                 InitializeArrows();
         }
+        
 
         public void GetKeyboardInput()
         {

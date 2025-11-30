@@ -138,7 +138,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     
     float4 color = float4(0, 0, 0, 1);
     
-    if (visualizationMode == 0) // Velocity
+    if (visualizationMode == 1) // Velocity
     {
         float u = sampleU(worldPos);
         float v = sampleV(worldPos);
@@ -147,25 +147,25 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         float t = saturate(velMag / MaxVelocityMag);
         color = VelocityLUT.SampleLevel(sampler_VelocityLUT, float2(t, 0.5), 0);
     }
-    else if (visualizationMode == 1) // Pressure
+    else if (visualizationMode == 2) // Pressure
     {
         float pressure = sampleCellCentered(Pressure, worldPos);
         float t = saturate(abs(pressure) / MaxPressureMag);
         color = PressureLUT.SampleLevel(sampler_PressureLUT, float2(t, 0.5), 0);
     }
-    else if (visualizationMode == 2) // Density/Smoke
+    else if (visualizationMode == 3) // Density/Smoke
     {
         float density = sampleCellCentered(Density, worldPos);
         float t = saturate(density / MaxDensity);
         color.rgb = lerp(backgroundColor.rgb, float3(1, 1, 1), t);
     }
-    else if (visualizationMode == 3) // Vorticity
+    else if (visualizationMode == 5) // Vorticity
     {
         float vorticity = sampleCellCentered(Vorticity, worldPos);
         
         color = VorticityLUT.SampleLevel(sampler_VorticityLUT, float2(InverseLerp(-MaxVorticityMag, MaxVorticityMag, vorticity), 0.5), 0);
     }
-    else if (visualizationMode == 4) // Pressure + Density
+    else if (visualizationMode == 6) // Pressure + Density
     {
         float pressure = sampleCellCentered(Pressure, worldPos);
         float density = sampleCellCentered(Density, worldPos);
@@ -176,7 +176,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         float densityT = saturate(density / MaxDensity);
         color.rgb = lerp(backgroundColor.rgb, pressureColor, densityT);
     }
-    else if (visualizationMode == 5) // Velocity + Density
+    else if (visualizationMode == 4) // Velocity + Density
     {
         float u = sampleU(worldPos);
         float v = sampleV(worldPos);
@@ -190,7 +190,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         float densityT = saturate(density / MaxDensity);
         color.rgb = lerp(backgroundColor.rgb, velColor, densityT);
     }
-    else if (visualizationMode == 6) // Color
+    else if (visualizationMode == 7) // Color
     {
         float density = sampleCellCentered(Density, worldPos);
         float r = sampleCellCentered(R, worldPos);
@@ -200,7 +200,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         float t = saturate(density / MaxDensity);
         color.rgb = lerp(backgroundColor.rgb, float3(r, g, b), t);
     }
-    else if (visualizationMode == 999) // DEBUG
+    else if (visualizationMode == 8) // DEBUG
     {
         int cellI = clamp(floor(worldPos.x / CellSize), 0, Width - 1);
         int cellJ = clamp(floor(worldPos.y / CellSize), 0, Height - 1);

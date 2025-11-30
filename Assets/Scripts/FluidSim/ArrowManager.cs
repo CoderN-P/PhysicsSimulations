@@ -8,17 +8,20 @@ public class ArrowManager : MonoBehaviour
     public bool disabled = false;
 
     // Update is called once per frame
-    public void Draw(Vector2 start, Vector2 end, float scale)
+    public void Draw(Vector2 start, Vector2 end, float scale, float thickness)
     {
         lineRenderer.SetPosition(0, start);
         lineRenderer.SetPosition(1, end);
+        lineRenderer.startWidth = thickness;
+        lineRenderer.endWidth = thickness;
         
         Vector2 direction = end - start;
 
         if (start == end)
         {
             Disable();
-        } 
+            return;
+        }
         
         float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
         

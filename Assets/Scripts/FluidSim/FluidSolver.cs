@@ -507,13 +507,13 @@ namespace FluidSim
                 
                 if (dy < 0)
                 {
-                    rGrid[0, j] = falloff;
+                    rGrid[0, j] = falloff*FluidSim.Instance.injectionDensity;
                     gGrid[0, j] = 0;
                     bGrid[0, j] = 0;
                 }
                 else
                 {
-                    bGrid[0, j] = falloff;
+                    bGrid[0, j] = falloff*FluidSim.Instance.injectionDensity;
                     rGrid[0, j] = 0;
                     gGrid[0, j] = 0;
                 }

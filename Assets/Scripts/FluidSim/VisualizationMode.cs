@@ -2,14 +2,14 @@ namespace FluidSim
 {
     public enum VisualizationMode
     {
-        Divergence = 7,
-        Velocity = 0,
-        Pressure = 1,
-        Smoke = 2,
-        SmokeWithVelocity = 5,
-        Vorticity = 3,
-        SmokeWithPressure = 4,
-        Color = 6,
-        Debug = 999,
+        Divergence = 0,
+        Velocity = 1,
+        Pressure = 2,
+        Smoke = 3,
+        SmokeWithVelocity = 4,
+        Vorticity = 5,
+        SmokeWithPressure = 6,
+        Color = 7,
+        Debug = 8,
     }
 }

@@ -1,3 +1,4 @@
+using Unity.VisualScripting;
 using UnityEngine;
 
 namespace FluidSim
@@ -11,6 +12,9 @@ namespace FluidSim
         [Header("Visualization Settings")]
         public VisualizationMode visualizationMode;
         public float cellSpacing; // Percent of cell to be shrunk for spacing
+        public float arrowheadScale;
+        public float arrowThickness;
+        public float cellsPerArrow;
         public bool showArrows;
         public bool enableArrows;
         public bool usePixelInterpolation;
@@ -87,7 +91,9 @@ namespace FluidSim
         {
 
             GetBottomLeft();
-            vectorArrows = new ArrowManager[width, height];
+            int numArrowsX = Mathf.CeilToInt(width / cellsPerArrow);
+            int numArrowsY = Mathf.CeilToInt(height / cellsPerArrow);
+            vectorArrows = new ArrowManager[numArrowsX, numArrowsY];
 
             if (!usePixelInterpolation) // Only initialize cells if not using pixel interpolation
             {
@@ -229,11 +235,13 @@ namespace FluidSim
 
         void InitializeArrows()
         {
-            for (int i = 0; i < width; i++)
+            int numArrowsX = Mathf.CeilToInt(width / cellsPerArrow);
+            int numArrowsY = Mathf.CeilToInt(height / cellsPerArrow);
+            for (int i = 0; i < numArrowsX; i++)
             {
-                for (int j = 0; j < height; j++)
+                for (int j = 0; j < numArrowsY; j++)
                 {
-                    Vector2 arrowPos = IndexToWorldPos(i, j);
+                    Vector2 arrowPos = IndexToWorldPos(i*numArrowsX, j*numArrowsY);
                     vectorArrows[i, j] = Instantiate(arrowPrefab, arrowPos, Quaternion.identity).GetComponent<ArrowManager>();
                 }
             }
@@ -414,6 +422,10 @@ namespace FluidSim
 
                 Color c = new Color(r, g, b);
                 pixels[index] = Color.Lerp(backgroundColor, c, Mathf.Clamp01(density / maxDensity));
+            } else if (visualizationMode == VisualizationMode.Divergence)
+            {
+                float divergence = FluidSim.Instance.fluidSolver.ComputeDivergenceAtCell(cellI, cellJ);
+                pixels[index] = divergenceGradient.Evaluate(Mathf.InverseLerp(-maxDivergenceMagnitude, maxDivergenceMagnitude, divergence));
             }
             else if (visualizationMode == VisualizationMode.Debug)
             {
@@ -439,9 +451,6 @@ namespace FluidSim
                 RenderGPU();
                 return;
             }
-            
-            if (visualizationMode == VisualizationMode.Divergence)
-                return;
 
             for (int px = 0; px < texWidth; px++)
             {
@@ -494,6 +503,14 @@ namespace FluidSim
                 t = Mathf.InverseLerp(-1f, 1f, clampedValue / maxVorticityMagnitude);
                 cells[i, j].color = vorticityGradient.Evaluate(t);
             }
+        }
+        
+        void RenderCell(float density, float r, float g, float b, int i, int j)
+        {
+            // Implementation for rendering a single cell at grid position (i, j) with given density
+            Color c = new Color(r, g, b);
+           
+            cells[i, j].color = Color.Lerp(backgroundColor, c, Mathf.Clamp01(density / maxDensity));
         }
 
         public void ApplyDensityBrush(Vector2 mousePos, float radius)
@@ -553,28 +570,39 @@ namespace FluidSim
 
         void RenderArrow(float u, float v, int i, int j, int solidCell)
         {
-            if (!showArrows) // If arrows are disabled, disable
-                vectorArrows[i, j].Disable();
-            else if (solidCell == 1 && !vectorArrows[i, j].disabled) // If solid and active, disable
-                vectorArrows[i, j].Disable();
-            else if (vectorArrows[i, j].disabled) // If not solid and not active, enable
-                vectorArrows[i, j].Enable();
+            int arrowI = Mathf.FloorToInt(i / cellsPerArrow);
+            int arrowJ = Mathf.FloorToInt(j / cellsPerArrow);
+            
+            if (!showArrows)
+            {
+                // If arrows are disabled, disable
+                vectorArrows[arrowI, arrowJ].Disable();
+                return;
+            }
+            else if (solidCell == 1)
+            {
+                // If solid and active, disable
+                if (!vectorArrows[arrowI, arrowJ].disabled)
+                    vectorArrows[arrowI, arrowJ].Disable();
+                return;
+            }
+            
             
             // Implementation for rendering a single arrow at grid position (i, j) with velocity components (u, v)
             Vector2 velocityDir = new Vector2(u, v).normalized;
             float velMagnitude = new Vector2(u, v).magnitude;
             
-            if (velMagnitude > maxVelocityArrowLength)
-            {
-                velMagnitude = maxVelocityArrowLength;
-            }
+            velMagnitude = Mathf.Lerp(0, maxVelocityArrowLength, velMagnitude/maxVelocityMagnitude);
             
             Vector2 velocity = velocityDir * velMagnitude;
             
             Vector2 startPos = IndexToWorldPos(i, j);
             Vector2 endPos = startPos + velocity;
             
-            vectorArrows[i, j].Draw(startPos, endPos, 1);
+            if (startPos != endPos && vectorArrows[arrowI, arrowJ].disabled)
+                vectorArrows[arrowI, arrowJ].Enable();
+            
+            vectorArrows[arrowI, arrowJ].Draw(startPos, endPos, arrowheadScale, arrowThickness);
         }
 
         public void Render(float[,] uGrid, float[,] vGrid, int[,] solid)
@@ -582,6 +610,24 @@ namespace FluidSim
             if (usePixelInterpolation)
             {
                 RenderTexture();
+                int numArrowsX = Mathf.CeilToInt(width / cellsPerArrow);
+                int numArrowsY = Mathf.CeilToInt(height / cellsPerArrow);
+                
+                for (int i = 0; i < numArrowsX; i++)
+                {
+                    for (int j = 0; j < numArrowsY; j++)
+                    {
+                        int cellI = Mathf.Min(i * Mathf.CeilToInt(cellsPerArrow), width - 1);
+                        int cellJ = Mathf.Min(j * Mathf.CeilToInt(cellsPerArrow), height - 1);
+                        RenderArrow(
+                            uGrid[cellI, cellJ],
+                            vGrid[cellI, cellJ],
+                            cellI,
+                            cellJ,
+                            solid[cellI, cellJ]
+                        );
+                    }
+                }
                 return;
             }
             for (int i = 0; i < width; i++)
@@ -621,9 +667,16 @@ namespace FluidSim
                         {
                             float vorticity = FluidSim.Instance.fluidSolver.omega[i, j];
                             RenderCell(vorticity, i, j, VisualizationMode.Vorticity);
+                        } else if (visualizationMode == VisualizationMode.Color)
+                        {
+                            float density = FluidSim.Instance.fluidSolver.density[i, j];
+                            float r = FluidSim.Instance.fluidSolver.rGrid[i, j];
+                            float g = FluidSim.Instance.fluidSolver.gGrid[i, j];
+                            float b = FluidSim.Instance.fluidSolver.bGrid[i, j];
+                            RenderCell(density, r, g, b, i, j);
                         }
 
-                        if (enableArrows)
+                        if (enableArrows && (i % Mathf.CeilToInt(cellsPerArrow) == 0) && (j % Mathf.CeilToInt(cellsPerArrow) == 0)) // Only render arrows at specified spacing
                         {
                             RenderArrow(uGrid[i, j], vGrid[i, j], i, j, solid[i, j]);
                         }
